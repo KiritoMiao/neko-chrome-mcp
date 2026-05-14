@@ -1,10 +1,10 @@
 {
   "name": "neko-chrome-mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Lazy Docker-backed Neko Chromium launcher for Chrome DevTools MCP.",
   "type": "module",
   "bin": {
-    "neko-chrome-mcp": "./bin/neko-chrome-mcp.js"
+    "neko-chrome-mcp": "bin/neko-chrome-mcp.js"
   },
   "scripts": {
     "test": "node --test",
