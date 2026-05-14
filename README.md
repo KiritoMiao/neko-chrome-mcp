@@ -25,7 +25,7 @@ From GitHub:
 command = "npx"
 args = [
   "-y",
-  "github:KiritoMiao/neko-chrome-mcp",
+  "git+ssh://git@github.com/KiritoMiao/neko-chrome-mcp.git",
   "--web-host",
   "127.0.0.1",
   "--web-port",
@@ -54,8 +54,8 @@ The temporary URL is printed to MCP stderr on startup:
 Useful options:
 
 ```sh
-npx -y github:KiritoMiao/neko-chrome-mcp --web-host 127.0.0.1 --web-port 8080
-npx -y github:KiritoMiao/neko-chrome-mcp --web-listen 0.0.0.0:18080 --web-url http://YOUR_HOST:18080
+npx -y git+ssh://git@github.com/KiritoMiao/neko-chrome-mcp.git --web-host 127.0.0.1 --web-port 8080
+npx -y git+ssh://git@github.com/KiritoMiao/neko-chrome-mcp.git --web-listen 0.0.0.0:18080 --web-url http://YOUR_HOST:18080
 ```
 
 `--web-host` controls the listen IP address for the Neko web interface and WebRTC mux port. `--web-port` controls the Neko web interface host port. DevTools stays bound to `127.0.0.1` by default.

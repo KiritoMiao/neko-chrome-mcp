@@ -2,7 +2,7 @@
 command = "npx"
 args = [
   "-y",
-  "github:KiritoMiao/neko-chrome-mcp",
+  "git+ssh://git@github.com/KiritoMiao/neko-chrome-mcp.git",
   "--web-host",
   "127.0.0.1",
   "--web-port",
