@@ -6,6 +6,7 @@ const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.me
 
 test('package exposes the renamed npm command', () => {
   assert.equal(packageJson.name, 'chrome-devtools-mcp-docker');
+  assert.equal(packageJson.version, '0.1.6');
   assert.deepEqual(packageJson.bin, {
     'chrome-devtools-mcp-docker': 'bin/chrome-devtools-mcp-docker.js'
   });

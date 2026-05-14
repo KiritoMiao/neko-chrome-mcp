@@ -1,6 +1,6 @@
 {
   "name": "chrome-devtools-mcp-docker",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Lazy Docker-backed Chrome DevTools MCP server with a noVNC web UI.",
   "type": "module",
   "bin": {

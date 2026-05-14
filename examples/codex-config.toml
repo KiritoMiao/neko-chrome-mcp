@@ -2,7 +2,7 @@
 command = "npx"
 args = [
   "-y",
-  "git+ssh://git@github.com/KiritoMiao/chrome-devtools-mcp-docker.git",
+  "chrome-devtools-mcp-docker",
   "--web-host",
   "127.0.0.1",
   "--web-port",

@@ -18,23 +18,7 @@ When the MCP server starts, it:
 
 ## Codex Config
 
-From GitHub:
-
-```toml
-[mcp_servers.chrome-devtools]
-command = "npx"
-args = [
-  "-y",
-  "git+ssh://git@github.com/KiritoMiao/chrome-devtools-mcp-docker.git",
-  "--web-host",
-  "127.0.0.1",
-  "--web-port",
-  "8080"
-]
-startup_timeout_ms = 60_000
-```
-
-From npm, after publishing:
+From npm:
 
 ```toml
 [mcp_servers.chrome-devtools]
@@ -102,19 +86,3 @@ npm install
 npm test
 npm pack --dry-run
 ```
-
-## Publishing
-
-Publishing is handled by GitHub Actions through npm trusted publishing. Configure npm before the first release:
-
-1. Create or claim the `chrome-devtools-mcp-docker` package on npm.
-2. In npm package settings, add a trusted publisher:
-   - Provider: GitHub Actions
-   - Organization/user: `KiritoMiao`
-   - Repository: `chrome-devtools-mcp-docker`
-   - Workflow filename: `publish.yml`
-   - Environment: leave empty
-3. Push a version bump to `main`.
-4. Create a GitHub release for that version.
-
-The workflow runs tests and `npm pack --dry-run`, then publishes to npm with provenance. Published prereleases use the `next` dist-tag by default; normal releases use `latest`. You can also run the workflow manually and choose `latest` or `next`.
