@@ -48,8 +48,12 @@ startup_timeout_ms = 60_000
 The temporary URL is printed to MCP stderr on startup:
 
 ```text
-[neko-chrome-mcp] browser web control URL: http://127.0.0.1:8080/?autoconnect=1&resize=scale&password=<temporary-password>
+[neko-chrome-mcp] browser web control URL (configured): http://127.0.0.1:8080/?autoconnect=1&resize=scale&password=<temporary-password>
+[neko-chrome-mcp] browser web control URL (cloudflare public IP <detected-ip>): http://<detected-ip>:8080/?autoconnect=1&resize=scale&password=<temporary-password>
+[neko-chrome-mcp] browser web control URL (interface IP <detected-ip>): http://<detected-ip>:8080/?autoconnect=1&resize=scale&password=<temporary-password>
 ```
+
+The Cloudflare line is detected from `https://www.cloudflare.com/cdn-cgi/trace`. The interface line is detected from the host network interfaces. If a detector cannot find an address, that line is omitted.
 
 Useful options:
 

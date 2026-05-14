@@ -1,6 +1,6 @@
 {
   "name": "neko-chrome-mcp",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Lazy Docker-backed Chrome web UI launcher for Chrome DevTools MCP.",
   "type": "module",
   "bin": {

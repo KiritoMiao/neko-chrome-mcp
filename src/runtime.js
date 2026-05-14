@@ -1,6 +1,8 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import http from 'node:http';
+import https from 'node:https';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
@@ -95,9 +97,9 @@ export async function runServer(config, streams = process) {
       }), { stdio: 'ignore' });
       startedByWrapper = true;
 
-      const controlUrl = webControlUrl(config, adminPassword);
-      await fs.writeFile(config.currentUrlFile, `${controlUrl}\n`, { mode: 0o600 });
-      log(streams, `browser web control URL: ${controlUrl}`);
+      const controlUrlEntries = await resolveWebControlUrlEntries(config, adminPassword);
+      await fs.writeFile(config.currentUrlFile, serializeWebControlUrlEntries(controlUrlEntries), { mode: 0o600 });
+      logWebControlUrlEntries(streams, controlUrlEntries);
       log(streams, `temporary browser web password: ${adminPassword}`);
     }
 
@@ -311,21 +313,163 @@ function dumpDockerLogs(dockerCommand, config, streams) {
 
 async function printCurrentUrl(config, streams) {
   try {
-    const url = (await fs.readFile(config.currentUrlFile, 'utf8')).trim();
-    if (url) {
-      log(streams, `browser web control URL: ${url}`);
+    const text = (await fs.readFile(config.currentUrlFile, 'utf8')).trim();
+    if (!text) {
+      return;
     }
+    logWebControlUrlEntries(streams, parseSerializedWebControlUrlEntries(text));
   } catch {
     // No current URL yet.
   }
 }
 
+export function buildWebControlUrlEntries(config, password, { cloudflarePublicIp, interfacePublicIp } = {}) {
+  const entries = [
+    {
+      label: 'configured',
+      url: webControlUrl(config, password)
+    }
+  ];
+
+  if (cloudflarePublicIp) {
+    entries.push({
+      label: `cloudflare public IP ${cloudflarePublicIp}`,
+      url: webControlUrlForHost(config, password, cloudflarePublicIp)
+    });
+  }
+
+  if (interfacePublicIp) {
+    entries.push({
+      label: `interface IP ${interfacePublicIp}`,
+      url: webControlUrlForHost(config, password, interfacePublicIp)
+    });
+  }
+
+  return entries;
+}
+
+export function serializeWebControlUrlEntries(entries) {
+  if (entries.length === 0) {
+    return '';
+  }
+  const [primary, ...rest] = entries;
+  return [
+    primary.url,
+    ...rest.map((entry) => `${entry.label}=${entry.url}`)
+  ].join('\n') + '\n';
+}
+
+export function parseCloudflareTrace(text) {
+  for (const line of text.split(/\r?\n/)) {
+    const [key, value] = line.split('=', 2);
+    if (key === 'ip' && value && net.isIP(value)) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+export function findInterfacePublicIp(networkInterfaces = os.networkInterfaces()) {
+  for (const addresses of Object.values(networkInterfaces)) {
+    for (const address of addresses ?? []) {
+      const family = typeof address.family === 'string' ? address.family : `IPv${address.family}`;
+      if (family !== 'IPv4' || address.internal || !net.isIPv4(address.address)) {
+        continue;
+      }
+      if (!isPrivateOrLocalIPv4(address.address)) {
+        return address.address;
+      }
+    }
+  }
+  return undefined;
+}
+
+async function resolveWebControlUrlEntries(config, password) {
+  const [cloudflarePublicIp, interfacePublicIp] = await Promise.all([
+    fetchCloudflarePublicIp().catch(() => undefined),
+    Promise.resolve(findInterfacePublicIp())
+  ]);
+
+  return buildWebControlUrlEntries(config, password, {
+    cloudflarePublicIp,
+    interfacePublicIp
+  });
+}
+
 function webControlUrl(config, password) {
   const baseUrl = config.webUrl.replace(/\/$/, '');
+  return webControlUrlFromBase(config, password, baseUrl);
+}
+
+function webControlUrlForHost(config, password, host) {
+  const base = new URL(config.webUrl);
+  return webControlUrlFromBase(config, password, `${base.protocol}//${urlHost(host)}:${config.webPort}`);
+}
+
+function webControlUrlFromBase(config, password, baseUrl) {
   if (config.backend === 'selenium') {
     return `${baseUrl}/?autoconnect=1&resize=scale&password=${encodeURIComponent(password)}`;
   }
   return `${baseUrl}/?usr=codex&pwd=${encodeURIComponent(password)}`;
+}
+
+function parseSerializedWebControlUrlEntries(text) {
+  return text.split(/\r?\n/)
+    .filter(Boolean)
+    .map((line, index) => {
+      if (index === 0) {
+        return { label: 'configured', url: line };
+      }
+      const separator = line.indexOf('=');
+      if (separator === -1) {
+        return { label: `url ${index + 1}`, url: line };
+      }
+      return {
+        label: line.slice(0, separator),
+        url: line.slice(separator + 1)
+      };
+    });
+}
+
+function logWebControlUrlEntries(streams, entries) {
+  for (const entry of entries) {
+    log(streams, `browser web control URL (${entry.label}): ${entry.url}`);
+  }
+}
+
+function fetchCloudflarePublicIp() {
+  return new Promise((resolve, reject) => {
+    const request = https.get('https://www.cloudflare.com/cdn-cgi/trace', (response) => {
+      const chunks = [];
+      response.on('data', (chunk) => chunks.push(chunk));
+      response.on('end', () => {
+        if (!response.statusCode || response.statusCode < 200 || response.statusCode >= 300) {
+          reject(new Error(`HTTP ${response.statusCode} from Cloudflare trace`));
+          return;
+        }
+        resolve(parseCloudflareTrace(Buffer.concat(chunks).toString('utf8')));
+      });
+    });
+
+    request.setTimeout(3000, () => {
+      request.destroy(new Error('Cloudflare trace timed out'));
+    });
+    request.once('error', reject);
+  });
+}
+
+function isPrivateOrLocalIPv4(address) {
+  const [a, b] = address.split('.').map(Number);
+  return a === 0 ||
+    a === 10 ||
+    a === 127 ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168);
+}
+
+function urlHost(host) {
+  return net.isIPv6(host) ? `[${host}]` : host;
 }
 
 async function removeCurrentUrl(config) {
