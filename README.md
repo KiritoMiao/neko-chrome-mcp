@@ -98,3 +98,19 @@ npm install
 npm test
 npm pack --dry-run
 ```
+
+## Publishing
+
+Publishing is handled by GitHub Actions through npm trusted publishing. Configure npm before the first release:
+
+1. Create or claim the `neko-chrome-mcp` package on npm.
+2. In npm package settings, add a trusted publisher:
+   - Provider: GitHub Actions
+   - Organization/user: `KiritoMiao`
+   - Repository: `neko-chrome-mcp`
+   - Workflow filename: `publish.yml`
+   - Environment: leave empty
+3. Push a version bump to `main`.
+4. Create a GitHub release for that version.
+
+The workflow runs tests and `npm pack --dry-run`, then publishes to npm with provenance. Published prereleases use the `next` dist-tag by default; normal releases use `latest`. You can also run the workflow manually and choose `latest` or `next`.

@@ -1,0 +1,61 @@
+name: Publish to npm
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      dist-tag:
+        description: npm dist-tag to publish
+        required: true
+        default: latest
+        type: choice
+        options:
+          - latest
+          - next
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    name: Publish package
+    runs-on: ubuntu-latest
+    if: github.repository == 'KiritoMiao/neko-chrome-mcp'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+
+      - name: Show tool versions
+        run: |
+          node --version
+          npm --version
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      - name: Check package contents
+        run: npm pack --dry-run
+
+      - name: Publish
+        env:
+          INPUT_DIST_TAG: ${{ inputs['dist-tag'] || '' }}
+          RELEASE_PRERELEASE: ${{ github.event.release.prerelease || false }}
+        run: |
+          set -euo pipefail
+          dist_tag="${INPUT_DIST_TAG:-latest}"
+          if [ -z "${INPUT_DIST_TAG}" ] && [ "${RELEASE_PRERELEASE}" = "true" ]; then
+            dist_tag="next"
+          fi
+          npm publish --access public --provenance --tag "${dist_tag}"
