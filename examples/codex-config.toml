@@ -1,0 +1,11 @@
+[mcp_servers.chrome-devtools]
+command = "npx"
+args = [
+  "-y",
+  "github:KiritoMiao/neko-chrome-mcp",
+  "--web-host",
+  "127.0.0.1",
+  "--web-port",
+  "8080"
+]
+startup_timeout_ms = 60_000

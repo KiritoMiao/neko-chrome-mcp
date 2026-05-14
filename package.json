@@ -1,0 +1,38 @@
+{
+  "name": "neko-chrome-mcp",
+  "version": "0.1.0",
+  "description": "Lazy Docker-backed Neko Chromium launcher for Chrome DevTools MCP.",
+  "type": "module",
+  "bin": {
+    "neko-chrome-mcp": "./bin/neko-chrome-mcp.js"
+  },
+  "scripts": {
+    "test": "node --test",
+    "start": "node ./bin/neko-chrome-mcp.js"
+  },
+  "dependencies": {
+    "chrome-devtools-mcp": "0.25.0"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KiritoMiao/neko-chrome-mcp.git"
+  },
+  "keywords": [
+    "mcp",
+    "chrome-devtools",
+    "neko",
+    "docker",
+    "chromium"
+  ],
+  "license": "MIT",
+  "files": [
+    "bin/",
+    "src/",
+    "examples/",
+    "README.md",
+    "LICENSE"
+  ]
+}
