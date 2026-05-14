@@ -32,10 +32,20 @@ export async function runServer(config, streams = process) {
   let runtimeDir;
   let startedByWrapper = false;
   let mcpProcess;
+  let seleniumSession;
 
   const cleanup = async () => {
     if (mcpProcess && !mcpProcess.killed) {
       mcpProcess.kill('SIGTERM');
+    }
+
+    if (seleniumSession) {
+      try {
+        await deleteSeleniumSession(config, seleniumSession.id);
+      } catch {
+        // Best-effort cleanup.
+      }
+      seleniumSession = undefined;
     }
 
     if (startedByWrapper && config.stopOnExit) {
@@ -72,10 +82,12 @@ export async function runServer(config, streams = process) {
 
       const adminPassword = generatePassword();
       const userPassword = generatePassword();
-      runtimeDir = await makeRuntimeDir();
-      await writeRuntimeFiles(runtimeDir, config);
+      if (config.backend === 'neko') {
+        runtimeDir = await makeRuntimeDir();
+        await writeRuntimeFiles(runtimeDir, config);
+      }
 
-      log(streams, `creating and starting Neko Chromium container: ${config.containerName}`);
+      log(streams, `creating and starting ${config.backend} Chrome container: ${config.containerName}`);
       runDocker(dockerCommand, buildDockerRunArgs(config, {
         runtimeDir,
         adminPassword,
@@ -83,16 +95,20 @@ export async function runServer(config, streams = process) {
       }), { stdio: 'ignore' });
       startedByWrapper = true;
 
-      const controlUrl = `${config.webUrl.replace(/\/$/, '')}/?usr=codex&pwd=${adminPassword}`;
+      const controlUrl = webControlUrl(config, adminPassword);
       await fs.writeFile(config.currentUrlFile, `${controlUrl}\n`, { mode: 0o600 });
-      log(streams, `Neko web control URL: ${controlUrl}`);
-      log(streams, `temporary Neko admin password: ${adminPassword}`);
+      log(streams, `browser web control URL: ${controlUrl}`);
+      log(streams, `temporary browser web password: ${adminPassword}`);
     }
 
     await waitForReady(config, dockerCommand, streams);
     await printCurrentUrl(config, streams);
 
-    mcpProcess = spawnChromeDevtoolsMcp(config);
+    if (config.backend === 'selenium') {
+      seleniumSession = await createSeleniumSession(config, streams);
+    }
+
+    mcpProcess = spawnChromeDevtoolsMcp(config, seleniumSession?.cdpWsUrl);
     return await waitForChild(mcpProcess);
   } finally {
     process.off('SIGINT', handleSignal);
@@ -102,6 +118,16 @@ export async function runServer(config, streams = process) {
 }
 
 export async function waitForReady(config, dockerCommand, streams = process) {
+  if (config.backend === 'selenium') {
+    const statusUrl = `${config.seleniumUrl.replace(/\/$/, '')}/status`;
+    if (!(await waitForHttp(statusUrl, config.waitAttempts))) {
+      log(streams, `Selenium did not become ready at ${statusUrl}`);
+      dumpDockerLogs(dockerCommand, config, streams);
+      throw new Error('Selenium failed to become ready');
+    }
+    return;
+  }
+
   const healthUrl = `${config.webUrl.replace(/\/$/, '')}/health`;
   const devtoolsUrl = `${config.browserUrl.replace(/\/$/, '')}/json/version`;
 
@@ -118,14 +144,16 @@ export async function waitForReady(config, dockerCommand, streams = process) {
   }
 }
 
-function spawnChromeDevtoolsMcp(config) {
+function spawnChromeDevtoolsMcp(config, cdpWsUrl) {
   const packageJsonPath = require.resolve('chrome-devtools-mcp/package.json');
   const binPath = path.join(path.dirname(packageJsonPath), 'build/src/bin/chrome-devtools-mcp.js');
+  const connectionArgs = cdpWsUrl
+    ? ['--wsEndpoint', cdpWsUrl]
+    : ['--browserUrl', config.browserUrl];
 
   return spawn(process.execPath, [
     binPath,
-    '--browserUrl',
-    config.browserUrl,
+    ...connectionArgs,
     '--no-usage-statistics',
     '--no-performance-crux',
     ...config.passthroughArgs
@@ -136,6 +164,37 @@ function spawnChromeDevtoolsMcp(config) {
       CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS: '1',
       CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS: '1'
     }
+  });
+}
+
+async function createSeleniumSession(config, streams) {
+  const response = await requestJson(`${config.seleniumUrl.replace(/\/$/, '')}/session`, {
+    method: 'POST',
+    body: {
+      capabilities: {
+        alwaysMatch: {
+          browserName: 'chrome',
+          'goog:chromeOptions': {
+            args: ['--remote-allow-origins=*']
+          }
+        }
+      }
+    }
+  });
+  const sessionId = response.value?.sessionId;
+  if (!sessionId) {
+    throw new Error('Selenium did not return a session id');
+  }
+
+  const cdpWsUrl = `${config.seleniumWsUrl.replace(/\/$/, '')}/session/${sessionId}/se/cdp`;
+  log(streams, `created Selenium Chrome session: ${sessionId}`);
+  return { id: sessionId, cdpWsUrl };
+}
+
+async function deleteSeleniumSession(config, sessionId) {
+  await requestJson(`${config.seleniumUrl.replace(/\/$/, '')}/session/${sessionId}`, {
+    method: 'DELETE',
+    allowEmpty: true
   });
 }
 
@@ -202,6 +261,46 @@ function waitForHttp(url, attempts) {
   });
 }
 
+function requestJson(url, { method = 'GET', body, allowEmpty = false } = {}) {
+  return new Promise((resolve, reject) => {
+    const payload = body === undefined ? undefined : JSON.stringify(body);
+    const request = http.request(url, {
+      method,
+      headers: payload
+        ? {
+            'content-type': 'application/json',
+            'content-length': Buffer.byteLength(payload)
+          }
+        : undefined
+    }, (response) => {
+      const chunks = [];
+      response.on('data', (chunk) => chunks.push(chunk));
+      response.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8');
+        if (!response.statusCode || response.statusCode < 200 || response.statusCode >= 300) {
+          reject(new Error(text || `HTTP ${response.statusCode} from ${url}`));
+          return;
+        }
+        if (!text && allowEmpty) {
+          resolve({});
+          return;
+        }
+        try {
+          resolve(JSON.parse(text));
+        } catch (error) {
+          reject(error);
+        }
+      });
+    });
+
+    request.once('error', reject);
+    if (payload) {
+      request.write(payload);
+    }
+    request.end();
+  });
+}
+
 function dumpDockerLogs(dockerCommand, config, streams) {
   try {
     streams.stderr.write(runDocker(dockerCommand, ['logs', '--tail=160', config.containerName]));
@@ -214,11 +313,19 @@ async function printCurrentUrl(config, streams) {
   try {
     const url = (await fs.readFile(config.currentUrlFile, 'utf8')).trim();
     if (url) {
-      log(streams, `Neko web control URL: ${url}`);
+      log(streams, `browser web control URL: ${url}`);
     }
   } catch {
     // No current URL yet.
   }
+}
+
+function webControlUrl(config, password) {
+  const baseUrl = config.webUrl.replace(/\/$/, '');
+  if (config.backend === 'selenium') {
+    return `${baseUrl}/?autoconnect=1&resize=scale&password=${encodeURIComponent(password)}`;
+  }
+  return `${baseUrl}/?usr=codex&pwd=${encodeURIComponent(password)}`;
 }
 
 async function removeCurrentUrl(config) {

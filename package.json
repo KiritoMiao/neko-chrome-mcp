@@ -1,7 +1,7 @@
 {
   "name": "neko-chrome-mcp",
-  "version": "0.1.1",
-  "description": "Lazy Docker-backed Neko Chromium launcher for Chrome DevTools MCP.",
+  "version": "0.1.2",
+  "description": "Lazy Docker-backed Chrome web UI launcher for Chrome DevTools MCP.",
   "type": "module",
   "bin": {
     "neko-chrome-mcp": "bin/neko-chrome-mcp.js"
@@ -11,7 +11,7 @@
     "start": "node ./bin/neko-chrome-mcp.js"
   },
   "dependencies": {
-    "chrome-devtools-mcp": "0.25.0"
+    "chrome-devtools-mcp": "0.26.0"
   },
   "engines": {
     "node": ">=20.19.0"
@@ -24,6 +24,8 @@
     "mcp",
     "chrome-devtools",
     "neko",
+    "selenium",
+    "novnc",
     "docker",
     "chromium"
   ],

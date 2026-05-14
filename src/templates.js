@@ -14,6 +14,7 @@ command=/usr/bin/chromium
   --disable-gpu
   --disable-software-rasterizer
   --disable-dev-shm-usage
+  --disable-features=DevToolsTabTarget
   --remote-debugging-address=127.0.0.1
   --remote-debugging-port=9222
   --remote-allow-origins=*
