@@ -25,6 +25,6 @@ try {
   const exitCode = await runServer(config);
   process.exit(exitCode);
 } catch (error) {
-  process.stderr.write(`[neko-chrome-mcp] error: ${error.message}\n`);
+  process.stderr.write(`[chrome-devtools-mcp-docker] error: ${error.message}\n`);
   process.exit(1);
 }

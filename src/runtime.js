@@ -10,7 +10,6 @@ import { spawn } from 'node:child_process';
 
 import { buildDockerRunArgs } from './config.js';
 import { containerExists, containerRunning, resolveDockerCommand, runDocker } from './docker.js';
-import { chromiumSupervisorConfig, relayPythonScript, relaySupervisorConfig } from './templates.js';
 
 const require = createRequire(import.meta.url);
 
@@ -31,7 +30,6 @@ export async function runServer(config, streams = process) {
     return 0;
   }
 
-  let runtimeDir;
   let startedByWrapper = false;
   let mcpProcess;
   let seleniumSession;
@@ -59,9 +57,6 @@ export async function runServer(config, streams = process) {
       }
     }
 
-    if (runtimeDir) {
-      await fs.rm(runtimeDir, { recursive: true, force: true });
-    }
     await removeCurrentUrl(config);
   };
 
@@ -83,17 +78,10 @@ export async function runServer(config, streams = process) {
       }
 
       const adminPassword = generatePassword();
-      const userPassword = generatePassword();
-      if (config.backend === 'neko') {
-        runtimeDir = await makeRuntimeDir();
-        await writeRuntimeFiles(runtimeDir, config);
-      }
 
-      log(streams, `creating and starting ${config.backend} Chrome container: ${config.containerName}`);
+      log(streams, `creating and starting Chrome container: ${config.containerName}`);
       runDocker(dockerCommand, buildDockerRunArgs(config, {
-        runtimeDir,
-        adminPassword,
-        userPassword
+        adminPassword
       }), { stdio: 'ignore' });
       startedByWrapper = true;
 
@@ -106,11 +94,9 @@ export async function runServer(config, streams = process) {
     await waitForReady(config, dockerCommand, streams);
     await printCurrentUrl(config, streams);
 
-    if (config.backend === 'selenium') {
-      seleniumSession = await createSeleniumSession(config, streams);
-    }
+    seleniumSession = await createSeleniumSession(config, streams);
 
-    mcpProcess = spawnChromeDevtoolsMcp(config, seleniumSession?.cdpWsUrl);
+    mcpProcess = spawnChromeDevtoolsMcp(config, seleniumSession.cdpWsUrl);
     return await waitForChild(mcpProcess);
   } finally {
     process.off('SIGINT', handleSignal);
@@ -120,42 +106,22 @@ export async function runServer(config, streams = process) {
 }
 
 export async function waitForReady(config, dockerCommand, streams = process) {
-  if (config.backend === 'selenium') {
-    const statusUrl = `${config.seleniumUrl.replace(/\/$/, '')}/status`;
-    if (!(await waitForHttp(statusUrl, config.waitAttempts))) {
-      log(streams, `Selenium did not become ready at ${statusUrl}`);
-      dumpDockerLogs(dockerCommand, config, streams);
-      throw new Error('Selenium failed to become ready');
-    }
-    return;
-  }
-
-  const healthUrl = `${config.webUrl.replace(/\/$/, '')}/health`;
-  const devtoolsUrl = `${config.browserUrl.replace(/\/$/, '')}/json/version`;
-
-  if (!(await waitForHttp(healthUrl, config.waitAttempts))) {
-    log(streams, `Neko did not become ready at ${healthUrl}`);
+  const statusUrl = `${config.seleniumUrl.replace(/\/$/, '')}/status`;
+  if (!(await waitForHttp(statusUrl, config.waitAttempts))) {
+    log(streams, `Selenium did not become ready at ${statusUrl}`);
     dumpDockerLogs(dockerCommand, config, streams);
-    throw new Error('Neko failed to become ready');
-  }
-
-  if (!(await waitForHttp(devtoolsUrl, config.waitAttempts))) {
-    log(streams, `Chrome DevTools did not become ready at ${devtoolsUrl}`);
-    dumpDockerLogs(dockerCommand, config, streams);
-    throw new Error('Chrome DevTools failed to become ready');
+    throw new Error('Selenium failed to become ready');
   }
 }
 
 function spawnChromeDevtoolsMcp(config, cdpWsUrl) {
   const packageJsonPath = require.resolve('chrome-devtools-mcp/package.json');
   const binPath = path.join(path.dirname(packageJsonPath), 'build/src/bin/chrome-devtools-mcp.js');
-  const connectionArgs = cdpWsUrl
-    ? ['--wsEndpoint', cdpWsUrl]
-    : ['--browserUrl', config.browserUrl];
 
   return spawn(process.execPath, [
     binPath,
-    ...connectionArgs,
+    '--wsEndpoint',
+    cdpWsUrl,
     '--no-usage-statistics',
     '--no-performance-crux',
     ...config.passthroughArgs
@@ -211,21 +177,6 @@ function waitForChild(child) {
       }
     });
   });
-}
-
-async function writeRuntimeFiles(runtimeDir, config) {
-  await fs.writeFile(path.join(runtimeDir, 'chromium.conf'), chromiumSupervisorConfig());
-  await fs.writeFile(path.join(runtimeDir, 'devtools-relay.conf'), relaySupervisorConfig());
-  await fs.writeFile(path.join(runtimeDir, 'devtools-relay.py'), relayPythonScript({
-    listenPort: config.devtoolsContainerPort,
-    targetPort: 9222
-  }), { mode: 0o755 });
-}
-
-async function makeRuntimeDir() {
-  const runtimeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'neko-chrome-mcp.'));
-  await fs.chmod(runtimeDir, 0o755);
-  return runtimeDir;
 }
 
 function waitForHttp(url, attempts) {
@@ -407,10 +358,7 @@ function webControlUrlForHost(config, password, host) {
 }
 
 function webControlUrlFromBase(config, password, baseUrl) {
-  if (config.backend === 'selenium') {
-    return `${baseUrl}/?autoconnect=1&resize=scale&password=${encodeURIComponent(password)}`;
-  }
-  return `${baseUrl}/?usr=codex&pwd=${encodeURIComponent(password)}`;
+  return `${baseUrl}/?autoconnect=1&resize=scale&password=${encodeURIComponent(password)}`;
 }
 
 function parseSerializedWebControlUrlEntries(text) {
@@ -481,5 +429,5 @@ function generatePassword() {
 }
 
 function log(streams, message) {
-  streams.stderr.write(`[neko-chrome-mcp] ${message}\n`);
+  streams.stderr.write(`[chrome-devtools-mcp-docker] ${message}\n`);
 }

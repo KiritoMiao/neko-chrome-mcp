@@ -2,4 +2,4 @@
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec node "${SCRIPT_DIR}/../bin/neko-chrome-mcp.js" "$@"
+exec node "${SCRIPT_DIR}/../bin/chrome-devtools-mcp-docker.js" "$@"

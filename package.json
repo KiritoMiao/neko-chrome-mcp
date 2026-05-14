@@ -1,14 +1,14 @@
 {
-  "name": "neko-chrome-mcp",
+  "name": "chrome-devtools-mcp-docker",
   "version": "0.1.5",
-  "description": "Lazy Docker-backed Chrome web UI launcher for Chrome DevTools MCP.",
+  "description": "Lazy Docker-backed Chrome DevTools MCP server with a noVNC web UI.",
   "type": "module",
   "bin": {
-    "neko-chrome-mcp": "bin/neko-chrome-mcp.js"
+    "chrome-devtools-mcp-docker": "bin/chrome-devtools-mcp-docker.js"
   },
   "scripts": {
     "test": "node --test",
-    "start": "node ./bin/neko-chrome-mcp.js"
+    "start": "node ./bin/chrome-devtools-mcp-docker.js"
   },
   "dependencies": {
     "chrome-devtools-mcp": "0.25.0"
@@ -18,12 +18,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/KiritoMiao/neko-chrome-mcp.git"
+    "url": "git+https://github.com/KiritoMiao/chrome-devtools-mcp-docker.git"
   },
   "keywords": [
     "mcp",
     "chrome-devtools",
-    "neko",
     "selenium",
     "novnc",
     "docker",
