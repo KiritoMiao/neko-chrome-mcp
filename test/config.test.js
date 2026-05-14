@@ -14,6 +14,7 @@ test('loadConfig uses stable defaults for localhost web access', () => {
   assert.equal(config.webUrl, 'http://127.0.0.1:8080');
   assert.equal(config.browserUrl, 'http://127.0.0.1:9222');
   assert.equal(config.seleniumUrl, 'http://127.0.0.1:4444');
+  assert.equal(config.seleniumSessionTimeout, 86400);
 });
 
 test('loadConfig lets CLI args override environment values', () => {
@@ -55,7 +56,17 @@ test('buildDockerRunArgs publishes the Selenium web interface and CDP proxy', ()
   assert.ok(args.includes('0.0.0.0:18080:7900/tcp'));
   assert.ok(args.includes('127.0.0.1:4444:4444/tcp'));
   assert.ok(args.includes('SE_VNC_PASSWORD=admin-pass'));
+  assert.ok(args.includes('SE_NODE_SESSION_TIMEOUT=86400'));
   assert.equal(args.at(-1), 'selenium/standalone-chrome:latest');
+});
+
+test('loadConfig allows Selenium session timeout override', () => {
+  const config = loadConfig({
+    argv: ['--selenium-session-timeout', '3600'],
+    env: {}
+  });
+
+  assert.equal(config.seleniumSessionTimeout, 3600);
 });
 
 test('buildDockerRunArgs can still publish the Neko backend ports', () => {

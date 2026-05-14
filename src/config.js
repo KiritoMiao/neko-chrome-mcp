@@ -12,6 +12,7 @@ export const DEFAULTS = Object.freeze({
   devtoolsContainerPort: 9223,
   seleniumPort: 4444,
   seleniumContainerPort: 4444,
+  seleniumSessionTimeout: 86400,
   webrtcPort: 59000,
   screenWidth: 1920,
   screenHeight: 1080,
@@ -33,6 +34,7 @@ const ENV_MAP = Object.freeze({
   devtoolsContainerPort: 'NEKO_CHROME_MCP_DEVTOOLS_CONTAINER_PORT',
   seleniumPort: 'NEKO_CHROME_MCP_SELENIUM_PORT',
   seleniumContainerPort: 'NEKO_CHROME_MCP_SELENIUM_CONTAINER_PORT',
+  seleniumSessionTimeout: 'NEKO_CHROME_MCP_SELENIUM_SESSION_TIMEOUT',
   webrtcPort: 'NEKO_CHROME_MCP_WEBRTC_PORT',
   webrtcNatIp: 'NEKO_CHROME_MCP_WEBRTC_NAT_IP',
   screenWidth: 'NEKO_CHROME_MCP_SCREEN_WIDTH',
@@ -57,6 +59,7 @@ const FLAG_MAP = Object.freeze({
   '--devtools-container-port': 'devtoolsContainerPort',
   '--selenium-port': 'seleniumPort',
   '--selenium-container-port': 'seleniumContainerPort',
+  '--selenium-session-timeout': 'seleniumSessionTimeout',
   '--webrtc-port': 'webrtcPort',
   '--webrtc-nat-ip': 'webrtcNatIp',
   '--screen-width': 'screenWidth',
@@ -73,6 +76,7 @@ const NUMBER_KEYS = new Set([
   'devtoolsContainerPort',
   'seleniumPort',
   'seleniumContainerPort',
+  'seleniumSessionTimeout',
   'webrtcPort',
   'screenWidth',
   'screenHeight',
@@ -233,6 +237,8 @@ function buildSeleniumDockerRunArgs(config, { adminPassword }) {
     `SE_VNC_PASSWORD=${adminPassword}`,
     '-e',
     'SE_NODE_MAX_SESSIONS=1',
+    '-e',
+    `SE_NODE_SESSION_TIMEOUT=${config.seleniumSessionTimeout}`,
     config.image
   ];
 }
@@ -252,6 +258,8 @@ Options:
   --web-url <url>            URL printed for users. Default: http://127.0.0.1:<web-port>
   --backend <backend>        Browser container backend: selenium or neko. Default: selenium
   --selenium-port <port>     Host port for Selenium/CDP proxy. Default: 4444
+  --selenium-session-timeout <seconds>
+                              Selenium browser session timeout. Default: 86400
   --devtools-host <ip>       IP address for DevTools host port. Default: 127.0.0.1
   --devtools-port <port>     Host port for Neko DevTools relay. Default: 9222
   --webrtc-port <port>       Host/container mux port for Neko WebRTC. Default: 59000

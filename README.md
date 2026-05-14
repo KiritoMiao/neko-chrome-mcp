@@ -76,6 +76,7 @@ Options:
 - `--web-url <url>`: URL printed for users. Default: `http://127.0.0.1:<web-port>`.
 - `--backend <backend>`: Browser container backend: `selenium` or `neko`. Default: `selenium`.
 - `--selenium-port <port>`: Host port for the Selenium/CDP proxy. Default: `4444`.
+- `--selenium-session-timeout <seconds>`: Selenium browser session timeout. Default: `86400`.
 - `--devtools-host <ip>`: IP address for DevTools host port. Default: `127.0.0.1`.
 - `--devtools-port <port>`: Host port for the legacy Neko DevTools relay. Default: `9222`.
 - `--webrtc-port <port>`: Host/container mux port for legacy Neko WebRTC. Default: `59000`.
@@ -93,6 +94,7 @@ Environment variables use the `NEKO_CHROME_MCP_` prefix, for example:
 - `NEKO_CHROME_MCP_WEB_URL`
 - `NEKO_CHROME_MCP_BACKEND`
 - `NEKO_CHROME_MCP_SELENIUM_PORT`
+- `NEKO_CHROME_MCP_SELENIUM_SESSION_TIMEOUT`
 - `NEKO_CHROME_MCP_WEBRTC_NAT_IP`
 
 ## Development
