@@ -8,4 +8,4 @@ args = [
   "--web-port",
   "8080"
 ]
-startup_timeout_ms = 60_000
+startup_timeout_sec = 60

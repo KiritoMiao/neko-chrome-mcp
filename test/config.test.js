@@ -14,6 +14,11 @@ test('loadConfig uses stable defaults for local noVNC access', () => {
   assert.equal(config.seleniumUrl, 'http://127.0.0.1:4444');
   assert.equal(config.seleniumWsUrl, 'ws://127.0.0.1:4444');
   assert.equal(config.seleniumSessionTimeout, 86400);
+  assert.equal(config.seleniumSessionRequestTimeout, 10);
+  assert.equal(config.seleniumSessionRetryInterval, 1);
+  assert.equal(config.maxSessions, 4);
+  assert.equal(config.detectPublicUrls, false);
+  assert.equal(config.stopOnExit, false);
   assert.equal(config.backend, undefined);
   assert.equal(config.browserUrl, undefined);
 });
@@ -70,18 +75,51 @@ test('buildDockerRunArgs publishes the Selenium web interface and CDP proxy', ()
   assert.ok(args.includes('127.0.0.1:4444:4444/tcp'));
   assert.ok(args.includes('SE_VNC_PASSWORD=admin-pass'));
   assert.ok(args.includes('SE_NODE_SESSION_TIMEOUT=86400'));
+  assert.ok(args.includes('SE_SESSION_REQUEST_TIMEOUT=10'));
+  assert.ok(args.includes('SE_SESSION_RETRY_INTERVAL=1'));
+  assert.ok(args.includes('SE_NODE_MAX_SESSIONS=4'));
+  assert.ok(args.includes('SE_NODE_OVERRIDE_MAX_SESSIONS=true'));
   assert.equal(args.at(-1), 'selenium/standalone-chrome:latest');
 });
 
-test('loadConfig allows Selenium session timeout override from the environment', () => {
+test('loadConfig allows Selenium session and concurrency overrides from the environment', () => {
   const config = loadConfig({
     argv: [],
     env: {
-      CHROME_DEVTOOLS_MCP_DOCKER_SELENIUM_SESSION_TIMEOUT: '3600'
+      CHROME_DEVTOOLS_MCP_DOCKER_SELENIUM_SESSION_TIMEOUT: '3600',
+      CHROME_DEVTOOLS_MCP_DOCKER_SELENIUM_SESSION_REQUEST_TIMEOUT: '7',
+      CHROME_DEVTOOLS_MCP_DOCKER_SELENIUM_SESSION_RETRY_INTERVAL: '2',
+      CHROME_DEVTOOLS_MCP_DOCKER_MAX_SESSIONS: '6',
+      CHROME_DEVTOOLS_MCP_DOCKER_DETECT_PUBLIC_URLS: 'true',
+      CHROME_DEVTOOLS_MCP_DOCKER_STOP_CONTAINER_ON_EXIT: 'true'
     }
   });
 
   assert.equal(config.seleniumSessionTimeout, 3600);
+  assert.equal(config.seleniumSessionRequestTimeout, 7);
+  assert.equal(config.seleniumSessionRetryInterval, 2);
+  assert.equal(config.maxSessions, 6);
+  assert.equal(config.detectPublicUrls, true);
+  assert.equal(config.stopOnExit, true);
+});
+
+test('loadConfig accepts CLI overrides for Selenium session concurrency', () => {
+  const config = loadConfig({
+    argv: [
+      '--max-sessions', '3',
+      '--selenium-session-request-timeout', '8',
+      '--selenium-session-retry-interval', '2',
+      '--detect-public-urls',
+      '--stop-on-exit'
+    ],
+    env: {}
+  });
+
+  assert.equal(config.maxSessions, 3);
+  assert.equal(config.seleniumSessionRequestTimeout, 8);
+  assert.equal(config.seleniumSessionRetryInterval, 2);
+  assert.equal(config.detectPublicUrls, true);
+  assert.equal(config.stopOnExit, true);
 });
 
 test('loadConfig rejects removed browser backend flags', () => {
@@ -102,6 +140,9 @@ test('helpText documents the renamed command and supported options', () => {
   const text = helpText();
 
   assert.match(text, /^chrome-devtools-mcp-docker$/m);
+  assert.match(text, /--max-sessions/);
+  assert.match(text, /--selenium-session-request-timeout/);
+  assert.match(text, /--detect-public-urls/);
   assert.match(text, /CHROME_DEVTOOLS_MCP_DOCKER_WEB_HOST/);
   assert.doesNotMatch(text, /--backend/);
   assert.doesNotMatch(text, /--webrtc/);

@@ -4,8 +4,11 @@ import assert from 'node:assert/strict';
 import { loadConfig } from '../src/config.js';
 import {
   buildWebControlUrlEntries,
+  ensureContainerRunning,
   findInterfacePublicIp,
   parseCloudflareTrace,
+  resolveWebControlUrlEntries,
+  seleniumSessionRequestTimeoutMs,
   serializeWebControlUrlEntries
 } from '../src/runtime.js';
 
@@ -85,5 +88,169 @@ test('findInterfacePublicIp prefers public non-internal IPv4 addresses', () => {
       ens18: [{ address: '198.51.100.30', family: 'IPv4', internal: false }]
     }),
     '198.51.100.30'
+  );
+});
+
+test('resolveWebControlUrlEntries does not fetch public IPs by default', async () => {
+  const config = loadConfig({ argv: [], env: {} });
+  let cloudflareCalled = false;
+
+  const entries = await resolveWebControlUrlEntries(config, 'pass', {
+    fetchCloudflarePublicIp: async () => {
+      cloudflareCalled = true;
+      return '203.0.113.10';
+    },
+    networkInterfaces: {
+      lo: [{ address: '127.0.0.1', family: 'IPv4', internal: true }]
+    }
+  });
+
+  assert.equal(cloudflareCalled, false);
+  assert.deepEqual(entries, [
+    {
+      label: 'configured',
+      url: 'http://127.0.0.1:8080/?autoconnect=1&resize=scale&password=pass'
+    }
+  ]);
+});
+
+test('resolveWebControlUrlEntries fetches public IPs only when enabled', async () => {
+  const config = loadConfig({ argv: ['--detect-public-urls'], env: {} });
+
+  const entries = await resolveWebControlUrlEntries(config, 'pass', {
+    fetchCloudflarePublicIp: async () => '203.0.113.10',
+    networkInterfaces: {
+      lo: [{ address: '127.0.0.1', family: 'IPv4', internal: true }]
+    }
+  });
+
+  assert.deepEqual(entries.map((entry) => entry.label), [
+    'configured',
+    'cloudflare public IP 203.0.113.10'
+  ]);
+});
+
+test('ensureContainerRunning reuses the shared container when another Codex wins startup race', async () => {
+  const config = loadConfig({ argv: [], env: {} });
+  const messages = [];
+  let runningChecks = 0;
+  let dockerRunCalls = 0;
+
+  const result = await ensureContainerRunning(config, ['docker'], {
+    stderr: {
+      write(message) {
+        messages.push(message);
+      }
+    }
+  }, {
+    containerRunning() {
+      runningChecks += 1;
+      return runningChecks > 1;
+    },
+    containerExists() {
+      return false;
+    },
+    runDocker(command, args) {
+      dockerRunCalls += 1;
+      assert.deepEqual(command, ['docker']);
+      assert.equal(args[0], 'run');
+      throw new Error('Conflict. The container name "/chrome-devtools-mcp-docker" is already in use by container "abc".');
+    }
+  });
+
+  assert.deepEqual(result, { started: false, adminPassword: undefined });
+  assert.equal(dockerRunCalls, 1);
+  assert.match(messages.join(''), /container already running after concurrent start/);
+});
+
+test('ensureContainerRunning rechecks the container after a generic Docker start failure', async () => {
+  const config = loadConfig({ argv: [], env: {} });
+  let runningChecks = 0;
+
+  const result = await ensureContainerRunning(config, ['docker'], {
+    stderr: {
+      write() {}
+    }
+  }, {
+    containerRunning() {
+      runningChecks += 1;
+      return runningChecks > 1;
+    },
+    containerExists() {
+      return false;
+    },
+    runDocker() {
+      throw new Error('docker run failed with status 125');
+    }
+  });
+
+  assert.deepEqual(result, { started: false, adminPassword: undefined });
+});
+
+test('ensureContainerRunning treats an existing not-yet-running container as a concurrent start', async () => {
+  const config = loadConfig({ argv: [], env: {} });
+  let existsChecks = 0;
+
+  const result = await ensureContainerRunning(config, ['docker'], {
+    stderr: {
+      write() {}
+    }
+  }, {
+    containerRunning() {
+      return false;
+    },
+    containerExists() {
+      existsChecks += 1;
+      return existsChecks > 1;
+    },
+    runDocker() {
+      throw new Error('docker run failed with status 125');
+    }
+  });
+
+  assert.deepEqual(result, { started: false, adminPassword: undefined });
+});
+
+test('ensureContainerRunning reports when this process starts the shared container', async () => {
+  const config = loadConfig({ argv: [], env: {} });
+  let dockerRunCalls = 0;
+
+  const result = await ensureContainerRunning(config, ['docker'], {
+    stderr: {
+      write() {}
+    }
+  }, {
+    containerRunning() {
+      return false;
+    },
+    containerExists() {
+      return false;
+    },
+    runDocker(command, args, options) {
+      dockerRunCalls += 1;
+      assert.deepEqual(command, ['docker']);
+      assert.equal(args[0], 'run');
+      assert.equal(options.stdio, 'ignore');
+    }
+  }, () => 'fixed-password');
+
+  assert.deepEqual(result, { started: true, adminPassword: 'fixed-password' });
+  assert.equal(dockerRunCalls, 1);
+});
+
+test('seleniumSessionRequestTimeoutMs keeps session creation bounded near Selenium queue timeout', () => {
+  assert.equal(
+    seleniumSessionRequestTimeoutMs(loadConfig({ argv: [], env: {} })),
+    13000
+  );
+  assert.equal(
+    seleniumSessionRequestTimeoutMs(loadConfig({
+      argv: [
+        '--selenium-session-request-timeout', '5',
+        '--selenium-session-retry-interval', '2'
+      ],
+      env: {}
+    })),
+    9000
   );
 });

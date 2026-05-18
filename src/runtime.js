@@ -12,6 +12,11 @@ import { buildDockerRunArgs } from './config.js';
 import { containerExists, containerRunning, resolveDockerCommand, runDocker } from './docker.js';
 
 const require = createRequire(import.meta.url);
+const DEFAULT_DOCKER_API = Object.freeze({
+  containerExists,
+  containerRunning,
+  runDocker
+});
 
 export async function runServer(config, streams = process) {
   const dockerCommand = resolveDockerCommand();
@@ -55,9 +60,9 @@ export async function runServer(config, streams = process) {
       } catch {
         // Best-effort cleanup.
       }
-    }
 
-    await removeCurrentUrl(config);
+      await removeCurrentUrl(config);
+    }
   };
 
   const handleSignal = async (signal) => {
@@ -69,26 +74,14 @@ export async function runServer(config, streams = process) {
   process.once('SIGTERM', handleSignal);
 
   try {
-    if (containerRunning(dockerCommand, config.containerName)) {
-      log(streams, `container already running: ${config.containerName}`);
-    } else {
-      if (containerExists(dockerCommand, config.containerName)) {
-        log(streams, `removing stale container: ${config.containerName}`);
-        runDocker(dockerCommand, ['rm', '-f', config.containerName], { stdio: 'ignore' });
-      }
+    const containerState = await ensureContainerRunning(config, dockerCommand, streams);
+    startedByWrapper = containerState.started;
 
-      const adminPassword = generatePassword();
-
-      log(streams, `creating and starting Chrome container: ${config.containerName}`);
-      runDocker(dockerCommand, buildDockerRunArgs(config, {
-        adminPassword
-      }), { stdio: 'ignore' });
-      startedByWrapper = true;
-
-      const controlUrlEntries = await resolveWebControlUrlEntries(config, adminPassword);
+    if (containerState.started) {
+      const controlUrlEntries = await resolveWebControlUrlEntries(config, containerState.adminPassword);
       await fs.writeFile(config.currentUrlFile, serializeWebControlUrlEntries(controlUrlEntries), { mode: 0o600 });
       logWebControlUrlEntries(streams, controlUrlEntries);
-      log(streams, `temporary browser web password: ${adminPassword}`);
+      log(streams, `temporary browser web password: ${containerState.adminPassword}`);
     }
 
     await waitForReady(config, dockerCommand, streams);
@@ -112,6 +105,45 @@ export async function waitForReady(config, dockerCommand, streams = process) {
     dumpDockerLogs(dockerCommand, config, streams);
     throw new Error('Selenium failed to become ready');
   }
+}
+
+export async function ensureContainerRunning(
+  config,
+  dockerCommand,
+  streams = process,
+  dockerApi = DEFAULT_DOCKER_API,
+  passwordGenerator = generatePassword
+) {
+  if (dockerApi.containerRunning(dockerCommand, config.containerName)) {
+    log(streams, `container already running: ${config.containerName}`);
+    return { started: false, adminPassword: undefined };
+  }
+
+  if (dockerApi.containerExists(dockerCommand, config.containerName)) {
+    log(streams, `removing stale container: ${config.containerName}`);
+    dockerApi.runDocker(dockerCommand, ['rm', '-f', config.containerName], { stdio: 'ignore' });
+  }
+
+  const adminPassword = passwordGenerator();
+  log(streams, `creating and starting Chrome container: ${config.containerName}`);
+
+  try {
+    dockerApi.runDocker(dockerCommand, buildDockerRunArgs(config, {
+      adminPassword
+    }), { stdio: 'ignore' });
+  } catch (error) {
+    if (dockerApi.containerRunning(dockerCommand, config.containerName)) {
+      log(streams, `container already running after concurrent start: ${config.containerName}`);
+      return { started: false, adminPassword: undefined };
+    }
+    if (dockerApi.containerExists(dockerCommand, config.containerName)) {
+      log(streams, `container already exists after concurrent start: ${config.containerName}`);
+      return { started: false, adminPassword: undefined };
+    }
+    throw error;
+  }
+
+  return { started: true, adminPassword };
 }
 
 function spawnChromeDevtoolsMcp(config, cdpWsUrl) {
@@ -138,6 +170,7 @@ function spawnChromeDevtoolsMcp(config, cdpWsUrl) {
 async function createSeleniumSession(config, streams) {
   const response = await requestJson(`${config.seleniumUrl.replace(/\/$/, '')}/session`, {
     method: 'POST',
+    timeoutMs: seleniumSessionRequestTimeoutMs(config),
     body: {
       capabilities: {
         alwaysMatch: {
@@ -157,6 +190,10 @@ async function createSeleniumSession(config, streams) {
   const cdpWsUrl = `${config.seleniumWsUrl.replace(/\/$/, '')}/session/${sessionId}/se/cdp`;
   log(streams, `created Selenium Chrome session: ${sessionId}`);
   return { id: sessionId, cdpWsUrl };
+}
+
+export function seleniumSessionRequestTimeoutMs(config) {
+  return (config.seleniumSessionRequestTimeout + config.seleniumSessionRetryInterval + 2) * 1000;
 }
 
 async function deleteSeleniumSession(config, sessionId) {
@@ -214,7 +251,7 @@ function waitForHttp(url, attempts) {
   });
 }
 
-function requestJson(url, { method = 'GET', body, allowEmpty = false } = {}) {
+function requestJson(url, { method = 'GET', body, allowEmpty = false, timeoutMs } = {}) {
   return new Promise((resolve, reject) => {
     const payload = body === undefined ? undefined : JSON.stringify(body);
     const request = http.request(url, {
@@ -247,6 +284,11 @@ function requestJson(url, { method = 'GET', body, allowEmpty = false } = {}) {
     });
 
     request.once('error', reject);
+    if (timeoutMs) {
+      request.setTimeout(timeoutMs, () => {
+        request.destroy(new Error(`HTTP ${method} ${url} timed out after ${timeoutMs}ms`));
+      });
+    }
     if (payload) {
       request.write(payload);
     }
@@ -335,11 +377,14 @@ export function findInterfacePublicIp(networkInterfaces = os.networkInterfaces()
   return undefined;
 }
 
-async function resolveWebControlUrlEntries(config, password) {
-  const [cloudflarePublicIp, interfacePublicIp] = await Promise.all([
-    fetchCloudflarePublicIp().catch(() => undefined),
-    Promise.resolve(findInterfacePublicIp())
-  ]);
+export async function resolveWebControlUrlEntries(config, password, {
+  fetchCloudflarePublicIp: publicIpFetcher = fetchCloudflarePublicIp,
+  networkInterfaces
+} = {}) {
+  const interfacePublicIp = findInterfacePublicIp(networkInterfaces);
+  const cloudflarePublicIp = config.detectPublicUrls
+    ? await publicIpFetcher().catch(() => undefined)
+    : undefined;
 
   return buildWebControlUrlEntries(config, password, {
     cloudflarePublicIp,

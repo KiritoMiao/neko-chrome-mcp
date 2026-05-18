@@ -10,8 +10,12 @@ export const DEFAULTS = Object.freeze({
   seleniumPort: 4444,
   seleniumContainerPort: 4444,
   seleniumSessionTimeout: 86400,
+  seleniumSessionRequestTimeout: 10,
+  seleniumSessionRetryInterval: 1,
+  maxSessions: 4,
   shmSize: '2g',
-  stopOnExit: true,
+  stopOnExit: false,
+  detectPublicUrls: false,
   waitAttempts: 80
 });
 
@@ -25,9 +29,13 @@ const ENV_MAP = Object.freeze({
   seleniumPort: 'CHROME_DEVTOOLS_MCP_DOCKER_SELENIUM_PORT',
   seleniumContainerPort: 'CHROME_DEVTOOLS_MCP_DOCKER_SELENIUM_CONTAINER_PORT',
   seleniumSessionTimeout: 'CHROME_DEVTOOLS_MCP_DOCKER_SELENIUM_SESSION_TIMEOUT',
+  seleniumSessionRequestTimeout: 'CHROME_DEVTOOLS_MCP_DOCKER_SELENIUM_SESSION_REQUEST_TIMEOUT',
+  seleniumSessionRetryInterval: 'CHROME_DEVTOOLS_MCP_DOCKER_SELENIUM_SESSION_RETRY_INTERVAL',
+  maxSessions: 'CHROME_DEVTOOLS_MCP_DOCKER_MAX_SESSIONS',
   shmSize: 'CHROME_DEVTOOLS_MCP_DOCKER_SHM_SIZE',
   currentUrlFile: 'CHROME_DEVTOOLS_MCP_DOCKER_CURRENT_URL_FILE',
   stopOnExit: 'CHROME_DEVTOOLS_MCP_DOCKER_STOP_CONTAINER_ON_EXIT',
+  detectPublicUrls: 'CHROME_DEVTOOLS_MCP_DOCKER_DETECT_PUBLIC_URLS',
   waitAttempts: 'CHROME_DEVTOOLS_MCP_DOCKER_WAIT_ATTEMPTS'
 });
 
@@ -42,6 +50,9 @@ const FLAG_MAP = Object.freeze({
   '--selenium-port': 'seleniumPort',
   '--selenium-container-port': 'seleniumContainerPort',
   '--selenium-session-timeout': 'seleniumSessionTimeout',
+  '--selenium-session-request-timeout': 'seleniumSessionRequestTimeout',
+  '--selenium-session-retry-interval': 'seleniumSessionRetryInterval',
+  '--max-sessions': 'maxSessions',
   '--shm-size': 'shmSize',
   '--current-url-file': 'currentUrlFile',
   '--wait-attempts': 'waitAttempts'
@@ -63,6 +74,9 @@ const NUMBER_KEYS = new Set([
   'seleniumPort',
   'seleniumContainerPort',
   'seleniumSessionTimeout',
+  'seleniumSessionRequestTimeout',
+  'seleniumSessionRetryInterval',
+  'maxSessions',
   'waitAttempts'
 ]);
 
@@ -107,6 +121,16 @@ export function loadConfig({ argv = process.argv.slice(2), env = process.env } =
 
     if (arg === '--stop-on-exit') {
       options.stopOnExit = true;
+      continue;
+    }
+
+    if (arg === '--detect-public-urls') {
+      options.detectPublicUrls = true;
+      continue;
+    }
+
+    if (arg === '--no-detect-public-urls') {
+      options.detectPublicUrls = false;
       continue;
     }
 
@@ -174,9 +198,15 @@ export function buildDockerRunArgs(config, { adminPassword }) {
     '-e',
     `SE_VNC_PASSWORD=${adminPassword}`,
     '-e',
-    'SE_NODE_MAX_SESSIONS=1',
-    '-e',
     `SE_NODE_SESSION_TIMEOUT=${config.seleniumSessionTimeout}`,
+    '-e',
+    `SE_SESSION_REQUEST_TIMEOUT=${config.seleniumSessionRequestTimeout}`,
+    '-e',
+    `SE_SESSION_RETRY_INTERVAL=${config.seleniumSessionRetryInterval}`,
+    '-e',
+    `SE_NODE_MAX_SESSIONS=${config.maxSessions}`,
+    '-e',
+    'SE_NODE_OVERRIDE_MAX_SESSIONS=true',
     config.image
   ];
 }
@@ -197,10 +227,17 @@ Options:
   --selenium-port <port>     Host port for Selenium/CDP proxy. Default: 4444
   --selenium-session-timeout <seconds>
                               Selenium browser session timeout. Default: 86400
+  --selenium-session-request-timeout <seconds>
+                              Maximum time Selenium queues a new browser session. Default: 10
+  --selenium-session-retry-interval <seconds>
+                              Selenium queued-session retry interval. Default: 1
+  --max-sessions <count>      Maximum concurrent Selenium browser sessions. Default: 4
   --devtools-host <ip>       IP address for DevTools host port. Default: 127.0.0.1
   --image <image>            Docker image. Default: selenium/standalone-chrome:latest
   --container <name>         Docker container name. Default: chrome-devtools-mcp-docker
-  --no-stop-on-exit          Leave the browser container running after MCP exits
+  --stop-on-exit             Stop the browser container when this process exits
+  --no-stop-on-exit          Leave the browser container running after MCP exits. Default
+  --detect-public-urls       Also detect and print public-IP browser URLs. Default: off
   --status                   Show the browser container status
   --stop-container           Stop the browser container
   --help                     Show this help
@@ -211,6 +248,10 @@ Environment:
   CHROME_DEVTOOLS_MCP_DOCKER_WEB_URL
   CHROME_DEVTOOLS_MCP_DOCKER_SELENIUM_PORT
   CHROME_DEVTOOLS_MCP_DOCKER_SELENIUM_SESSION_TIMEOUT
+  CHROME_DEVTOOLS_MCP_DOCKER_SELENIUM_SESSION_REQUEST_TIMEOUT
+  CHROME_DEVTOOLS_MCP_DOCKER_SELENIUM_SESSION_RETRY_INTERVAL
+  CHROME_DEVTOOLS_MCP_DOCKER_MAX_SESSIONS
+  CHROME_DEVTOOLS_MCP_DOCKER_DETECT_PUBLIC_URLS
 `;
 }
 
@@ -227,7 +268,7 @@ function coerceValue(key, value) {
     return parsePortishNumber(key, value);
   }
 
-  if (key === 'stopOnExit') {
+  if (key === 'stopOnExit' || key === 'detectPublicUrls') {
     return !['0', 'false', 'no', 'off'].includes(String(value).toLowerCase());
   }
 
